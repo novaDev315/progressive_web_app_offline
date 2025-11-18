@@ -1,13 +1,17 @@
 import { useEffect } from 'react';
 import { useStore } from './store';
+import { useServiceWorker } from './hooks/useServiceWorker';
 import { Header } from './components/Header';
 import { TaskForm } from './components/TaskForm';
 import { TaskList } from './components/TaskList';
 import { InstallPrompt } from './components/InstallPrompt';
 import { NotificationPrompt } from './components/NotificationPrompt';
+import { UpdatePrompt } from './components/UpdatePrompt';
+import { ErrorToast } from './components/ErrorToast';
 
 function App() {
   const { loadTasks, setOnlineStatus } = useStore();
+  const { needRefresh, handleUpdate } = useServiceWorker();
 
   useEffect(() => {
     // Load tasks on mount
@@ -37,6 +41,8 @@ function App() {
       </main>
 
       <InstallPrompt />
+      {needRefresh && <UpdatePrompt onUpdate={handleUpdate} />}
+      <ErrorToast />
 
       {/* PWA Features Info */}
       <div className="max-w-4xl mx-auto px-4 py-8">
@@ -68,6 +74,14 @@ function App() {
             <li className="flex items-start gap-2">
               <span className="text-green-500">✓</span>
               <span>Responsive design</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-green-500">✓</span>
+              <span>Stale-while-revalidate caching</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-green-500">✓</span>
+              <span>Web Share API integration</span>
             </li>
           </ul>
         </div>

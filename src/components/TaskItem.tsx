@@ -1,6 +1,6 @@
 import type { Task } from '../db';
 import { useStore } from '../store';
-import { FaCheck, FaTrash, FaCloud, FaCloudUploadAlt } from 'react-icons/fa';
+import { FaCheck, FaTrash, FaCloud, FaCloudUploadAlt, FaShare } from 'react-icons/fa';
 
 interface TaskItemProps {
   task: Task;
@@ -18,6 +18,33 @@ export const TaskItem = ({ task }: TaskItemProps) => {
   const handleDelete = () => {
     if (task.id && confirm('Are you sure you want to delete this task?')) {
       deleteTask(task.id);
+    }
+  };
+
+  const handleShare = async () => {
+    if (!navigator.share) {
+      // Fallback: copy to clipboard
+      const text = `${task.title}\n${task.description || ''}`;
+      try {
+        await navigator.clipboard.writeText(text);
+        alert('Task copied to clipboard!');
+      } catch (err) {
+        console.error('Failed to copy:', err);
+      }
+      return;
+    }
+
+    try {
+      await navigator.share({
+        title: task.title,
+        text: task.description || task.title,
+        url: window.location.href,
+      });
+    } catch (err) {
+      // User cancelled or share failed
+      if ((err as Error).name !== 'AbortError') {
+        console.error('Share failed:', err);
+      }
     }
   };
 
@@ -62,13 +89,22 @@ export const TaskItem = ({ task }: TaskItemProps) => {
           </div>
         </div>
 
-        <button
-          onClick={handleDelete}
-          className="flex-shrink-0 p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-          title="Delete task"
-        >
-          <FaTrash size={16} />
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleShare}
+            className="flex-shrink-0 p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+            title="Share task"
+          >
+            <FaShare size={16} />
+          </button>
+          <button
+            onClick={handleDelete}
+            className="flex-shrink-0 p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+            title="Delete task"
+          >
+            <FaTrash size={16} />
+          </button>
+        </div>
       </div>
     </div>
   );
