@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { db, type Task } from './db';
 
 interface AppState {
@@ -6,6 +7,10 @@ interface AppState {
   isOnline: boolean;
   loading: boolean;
   error: string | null;
+  darkMode: boolean;
+  searchQuery: string;
+  deletedTask: Task | null;
+  showUndoToast: boolean;
 
   // Actions
   loadTasks: () => Promise<void>;
@@ -15,13 +20,34 @@ interface AppState {
   toggleTask: (id: number) => Promise<void>;
   setOnlineStatus: (status: boolean) => void;
   syncData: () => Promise<void>;
+  toggleDarkMode: () => void;
+  setSearchQuery: (query: string) => void;
+  undoDelete: () => Promise<void>;
+  clearUndoToast: () => void;
+  exportData: () => Promise<string>;
+  importData: (jsonData: string) => Promise<void>;
 }
+
+// Separate store for theme persistence
+export const useThemeStore = create<{ darkMode: boolean; toggleDarkMode: () => void }>()(
+  persist(
+    (set) => ({
+      darkMode: false,
+      toggleDarkMode: () => set((state) => ({ darkMode: !state.darkMode })),
+    }),
+    { name: 'theme-storage' }
+  )
+);
 
 export const useStore = create<AppState>((set, get) => ({
   tasks: [],
   isOnline: navigator.onLine,
   loading: false,
   error: null,
+  darkMode: false,
+  searchQuery: '',
+  deletedTask: null,
+  showUndoToast: false,
 
   loadTasks: async () => {
     try {
@@ -96,6 +122,9 @@ export const useStore = create<AppState>((set, get) => ({
 
   deleteTask: async (id) => {
     try {
+      // Save task for undo
+      const taskToDelete = await db.tasks.get(id);
+
       await db.tasks.delete(id);
 
       // Add to sync queue
@@ -106,6 +135,15 @@ export const useStore = create<AppState>((set, get) => ({
         timestamp: new Date(),
         retryCount: 0,
       });
+
+      // Store deleted task for undo and show toast
+      if (taskToDelete) {
+        set({ deletedTask: taskToDelete, showUndoToast: true });
+        // Auto-clear after 5 seconds
+        setTimeout(() => {
+          set({ showUndoToast: false, deletedTask: null });
+        }, 5000);
+      }
 
       await get().loadTasks();
 
@@ -155,6 +193,71 @@ export const useStore = create<AppState>((set, get) => ({
       await get().loadTasks();
     } catch (error) {
       console.error('Sync error:', error);
+    }
+  },
+
+  toggleDarkMode: () => {
+    set((state) => ({ darkMode: !state.darkMode }));
+  },
+
+  setSearchQuery: (query) => {
+    set({ searchQuery: query });
+  },
+
+  undoDelete: async () => {
+    const { deletedTask } = get();
+    if (!deletedTask) return;
+
+    try {
+      // Re-add the deleted task
+      await db.tasks.add(deletedTask);
+      set({ deletedTask: null, showUndoToast: false });
+      await get().loadTasks();
+    } catch (error) {
+      set({ error: (error as Error).message });
+    }
+  },
+
+  clearUndoToast: () => {
+    set({ showUndoToast: false, deletedTask: null });
+  },
+
+  exportData: async () => {
+    try {
+      const tasks = await db.tasks.toArray();
+      const exportData = {
+        version: '1.0',
+        exportedAt: new Date().toISOString(),
+        tasks: tasks.map(({ id, ...task }) => task),
+      };
+      return JSON.stringify(exportData, null, 2);
+    } catch (error) {
+      set({ error: (error as Error).message });
+      return '';
+    }
+  },
+
+  importData: async (jsonData) => {
+    try {
+      const data = JSON.parse(jsonData);
+      if (!data.tasks || !Array.isArray(data.tasks)) {
+        throw new Error('Invalid import file format');
+      }
+
+      // Add imported tasks
+      for (const task of data.tasks) {
+        await db.tasks.add({
+          ...task,
+          priority: task.priority || 'medium',
+          createdAt: new Date(task.createdAt),
+          updatedAt: new Date(task.updatedAt),
+          synced: false,
+        });
+      }
+
+      await get().loadTasks();
+    } catch (error) {
+      set({ error: (error as Error).message });
     }
   },
 }));

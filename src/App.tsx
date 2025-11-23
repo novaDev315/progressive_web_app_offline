@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useStore } from './store';
+import { useStore, useThemeStore } from './store';
 import { useServiceWorker } from './hooks/useServiceWorker';
 import { Header } from './components/Header';
 import { TaskForm } from './components/TaskForm';
@@ -8,9 +8,12 @@ import { InstallPrompt } from './components/InstallPrompt';
 import { NotificationPrompt } from './components/NotificationPrompt';
 import { UpdatePrompt } from './components/UpdatePrompt';
 import { ErrorToast } from './components/ErrorToast';
+import { OfflineBanner } from './components/OfflineBanner';
+import { UndoToast } from './components/UndoToast';
 
 function App() {
   const { loadTasks, setOnlineStatus } = useStore();
+  const { darkMode } = useThemeStore();
   const { needRefresh, handleUpdate } = useServiceWorker();
 
   useEffect(() => {
@@ -30,8 +33,18 @@ function App() {
     };
   }, [loadTasks, setOnlineStatus]);
 
+  // Apply dark mode class to document
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [darkMode]);
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
+      <OfflineBanner />
       <Header />
 
       <main className="max-w-4xl mx-auto px-4 py-8">
@@ -43,14 +56,15 @@ function App() {
       <InstallPrompt />
       {needRefresh && <UpdatePrompt onUpdate={handleUpdate} />}
       <ErrorToast />
+      <UndoToast />
 
       {/* PWA Features Info */}
       <div className="max-w-4xl mx-auto px-4 py-8">
-        <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-6 border border-purple-200">
-          <h2 className="text-lg font-semibold text-gray-800 mb-3">
+        <div className="bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 rounded-lg p-6 border border-purple-200 dark:border-purple-800">
+          <h2 className="text-lg font-semibold text-gray-800 dark:text-white mb-3">
             PWA Features Demonstrated
           </h2>
-          <ul className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-gray-700">
+          <ul className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-gray-700 dark:text-gray-300">
             <li className="flex items-start gap-2">
               <span className="text-green-500">✓</span>
               <span>Offline-first architecture with IndexedDB</span>
@@ -73,21 +87,37 @@ function App() {
             </li>
             <li className="flex items-start gap-2">
               <span className="text-green-500">✓</span>
-              <span>Responsive design</span>
+              <span>Dark mode with persistence</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-green-500">✓</span>
-              <span>Stale-while-revalidate caching</span>
+              <span>Task search & filtering</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-green-500">✓</span>
+              <span>Priority levels (High/Medium/Low)</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-green-500">✓</span>
+              <span>Undo delete functionality</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-green-500">✓</span>
+              <span>Export/Import data backup</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-green-500">✓</span>
               <span>Web Share API integration</span>
             </li>
+            <li className="flex items-start gap-2">
+              <span className="text-green-500">✓</span>
+              <span>Offline status banner</span>
+            </li>
           </ul>
         </div>
       </div>
 
-      <footer className="text-center py-8 text-gray-600 text-sm">
+      <footer className="text-center py-8 text-gray-600 dark:text-gray-400 text-sm">
         <p>
           Built with React, TypeScript, Vite, and Workbox
         </p>
