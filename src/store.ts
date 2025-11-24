@@ -7,10 +7,11 @@ interface AppState {
   isOnline: boolean;
   loading: boolean;
   error: string | null;
-  darkMode: boolean;
   searchQuery: string;
   deletedTask: Task | null;
+  deletedTaskSyncId: number | null;
   showUndoToast: boolean;
+  undoTimeoutId: number | null;
 
   // Actions
   loadTasks: () => Promise<void>;
@@ -20,7 +21,6 @@ interface AppState {
   toggleTask: (id: number) => Promise<void>;
   setOnlineStatus: (status: boolean) => void;
   syncData: () => Promise<void>;
-  toggleDarkMode: () => void;
   setSearchQuery: (query: string) => void;
   undoDelete: () => Promise<void>;
   clearUndoToast: () => void;
@@ -44,10 +44,11 @@ export const useStore = create<AppState>((set, get) => ({
   isOnline: navigator.onLine,
   loading: false,
   error: null,
-  darkMode: false,
   searchQuery: '',
   deletedTask: null,
+  deletedTaskSyncId: null,
   showUndoToast: false,
+  undoTimeoutId: null,
 
   loadTasks: async () => {
     try {
@@ -122,13 +123,19 @@ export const useStore = create<AppState>((set, get) => ({
 
   deleteTask: async (id) => {
     try {
+      // Clear any existing undo timeout
+      const { undoTimeoutId } = get();
+      if (undoTimeoutId) {
+        clearTimeout(undoTimeoutId);
+      }
+
       // Save task for undo
       const taskToDelete = await db.tasks.get(id);
 
       await db.tasks.delete(id);
 
-      // Add to sync queue
-      await db.syncQueue.add({
+      // Add to sync queue and save the sync queue ID
+      const syncId = await db.syncQueue.add({
         action: 'delete',
         taskId: id,
         payload: {},
@@ -138,11 +145,16 @@ export const useStore = create<AppState>((set, get) => ({
 
       // Store deleted task for undo and show toast
       if (taskToDelete) {
-        set({ deletedTask: taskToDelete, showUndoToast: true });
-        // Auto-clear after 5 seconds
-        setTimeout(() => {
-          set({ showUndoToast: false, deletedTask: null });
+        const timeoutId = setTimeout(() => {
+          set({ showUndoToast: false, deletedTask: null, deletedTaskSyncId: null, undoTimeoutId: null });
         }, 5000);
+
+        set({
+          deletedTask: taskToDelete,
+          deletedTaskSyncId: syncId,
+          showUndoToast: true,
+          undoTimeoutId: timeoutId
+        });
       }
 
       await get().loadTasks();
@@ -196,22 +208,35 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  toggleDarkMode: () => {
-    set((state) => ({ darkMode: !state.darkMode }));
-  },
-
   setSearchQuery: (query) => {
     set({ searchQuery: query });
   },
 
   undoDelete: async () => {
-    const { deletedTask } = get();
+    const { deletedTask, deletedTaskSyncId, undoTimeoutId } = get();
     if (!deletedTask) return;
 
     try {
+      // Clear the auto-hide timeout
+      if (undoTimeoutId) {
+        clearTimeout(undoTimeoutId);
+      }
+
       // Re-add the deleted task
       await db.tasks.add(deletedTask);
-      set({ deletedTask: null, showUndoToast: false });
+
+      // Remove the delete action from sync queue
+      if (deletedTaskSyncId) {
+        await db.syncQueue.delete(deletedTaskSyncId);
+      }
+
+      set({
+        deletedTask: null,
+        deletedTaskSyncId: null,
+        showUndoToast: false,
+        undoTimeoutId: null
+      });
+
       await get().loadTasks();
     } catch (error) {
       set({ error: (error as Error).message });
@@ -219,7 +244,11 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   clearUndoToast: () => {
-    set({ showUndoToast: false, deletedTask: null });
+    const { undoTimeoutId } = get();
+    if (undoTimeoutId) {
+      clearTimeout(undoTimeoutId);
+    }
+    set({ showUndoToast: false, deletedTask: null, deletedTaskSyncId: null, undoTimeoutId: null });
   },
 
   exportData: async () => {
@@ -244,20 +273,49 @@ export const useStore = create<AppState>((set, get) => ({
         throw new Error('Invalid import file format');
       }
 
-      // Add imported tasks
+      let importedCount = 0;
+      let skippedCount = 0;
+
+      // Add imported tasks (skip duplicates based on title and createdAt)
       for (const task of data.tasks) {
-        await db.tasks.add({
-          ...task,
-          priority: task.priority || 'medium',
-          createdAt: new Date(task.createdAt),
-          updatedAt: new Date(task.updatedAt),
-          synced: false,
-        });
+        const existingTask = await db.tasks
+          .where('title')
+          .equals(task.title)
+          .and(t => t.createdAt.getTime() === new Date(task.createdAt).getTime())
+          .first();
+
+        if (!existingTask) {
+          await db.tasks.add({
+            ...task,
+            priority: task.priority || 'medium',
+            createdAt: new Date(task.createdAt),
+            updatedAt: new Date(task.updatedAt),
+            synced: false,
+          });
+          importedCount++;
+        } else {
+          skippedCount++;
+        }
       }
 
       await get().loadTasks();
+
+      // Show success message with stats
+      if (skippedCount > 0) {
+        set({ error: `Import complete: ${importedCount} tasks imported, ${skippedCount} duplicates skipped` });
+      } else {
+        set({ error: `Successfully imported ${importedCount} tasks` });
+      }
+
+      // Clear message after 5 seconds
+      setTimeout(() => {
+        if (get().error?.includes('Import complete') || get().error?.includes('Successfully imported')) {
+          set({ error: null });
+        }
+      }, 5000);
     } catch (error) {
-      set({ error: (error as Error).message });
+      const errorMessage = error instanceof Error ? error.message : 'Import failed';
+      set({ error: `Import failed: ${errorMessage}` });
     }
   },
 }));
